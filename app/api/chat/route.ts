@@ -24,6 +24,11 @@ export async function POST(req: Request) {
       if (done) controller.close();
       else controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
     },
+    // The user pressed Stop (or closed the tab): end the generator. Its for-await loops
+    // unwind, which cancels the in-flight Groq stream — no tokens spent on an unread answer.
+    async cancel() {
+      await events.return(undefined);
+    },
   });
 
   return new Response(stream, {

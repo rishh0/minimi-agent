@@ -26,7 +26,7 @@ body {
 }
 
 /* Answer formatting (rendered by app/components/Markdown.tsx) */
-.markdown { line-height: 1.65; overflow-wrap: anywhere; }
+.markdown { line-height: 1.65; overflow-wrap: break-word; }
 .markdown > * + * { margin-top: 0.75rem; }
 .markdown h1, .markdown h2, .markdown h3 { font-weight: 600; margin-top: 1.25rem; }
 .markdown h1 { font-size: 1.25rem; }
@@ -39,8 +39,9 @@ body {
 .markdown a:hover { text-decoration: underline; }
 .markdown code { font-family: var(--font-mono); font-size: 0.875em; padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: rgb(0 0 0 / 0.06); }
 .markdown hr { border-color: rgb(127 127 127 / 0.25); }
+/* Wide tables scroll sideways instead of squeezing words letter by letter. */
 .markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; }
-.markdown th, .markdown td { border: 1px solid rgb(127 127 127 / 0.3); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+.markdown th, .markdown td { border: 1px solid rgb(127 127 127 / 0.3); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; min-width: 6.5rem; overflow-wrap: normal; }
 .markdown th { font-weight: 600; background: rgb(127 127 127 / 0.08); }
 @media (prefers-color-scheme: dark) {
   .markdown a { color: #60a5fa; }

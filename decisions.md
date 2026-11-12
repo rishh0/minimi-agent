@@ -99,3 +99,9 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 - Found in the fresh-clone test: Groq's free tier also has a daily cap (200K tokens/day for gpt-oss-120b ≈ 30 search-heavy turns). The user saw a raw JSON error and no answer.
 - **Fix:** limits are per model, so on a daily-limit 429 the turn continues on `gpt-oss-20b` with a visible "⚠️ smaller model" status. All provider errors are mapped to short, actionable messages (rate limit + wait time, invalid key).
 - Also: `app/layout.tsx` used Next's generated `LayoutProps` type, which doesn't exist in a fresh clone until the first `next dev` → plain `{ children: React.ReactNode }`.
+
+## 23. UI shows what the agent did
+- Each answer carries a "steps" line — memory hits, search rounds and queries (expandable), source count, fallback warnings — saved with the message (`meta` column, added with an ALTER TABLE migration for existing databases), so reopened chats show it too. The pipeline is visible instead of hidden behind a spinner.
+- Empty state with one-click example questions (the brief's own examples), source chips by domain, Enter/Shift+Enter composer, timestamps, conversations grouped Today / Yesterday / Previous 7 days / Older, mobile drawer, open chat kept in the URL (`?c=`).
+- **Stop** cancels the fetch; the route's `cancel()` returns the generator, which unwinds into the Groq stream and aborts it — no tokens spent on an unread answer, nothing half-written saved.
+- Verified with headless-Chrome screenshots (desktop and a true 390px phone width via an iframe — a headless window can't go below 500px).

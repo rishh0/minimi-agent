@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content         TEXT NOT NULL,
   sources         TEXT,               -- JSON array of sources (assistant messages)
+  meta            TEXT,               -- JSON: what the agent did (memory hits, searches, warnings)
   created_at      TEXT NOT NULL       -- ISO 8601, UTC
 );
 CREATE INDEX IF NOT EXISTS messages_by_time ON messages(created_at);
@@ -61,3 +62,6 @@ export const db = (globalForDb.db ??= open());
 // Idempotent (IF NOT EXISTS), so it's safe on every load — and a reused connection
 // still picks up tables added since it was opened.
 db.exec(SCHEMA);
+// Columns added after the first release: ALTER TABLE for databases created before them.
+const columns = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+if (!columns.some((c) => c.name === "meta")) db.exec("ALTER TABLE messages ADD COLUMN meta TEXT");

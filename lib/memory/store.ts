@@ -3,11 +3,19 @@ import { db } from "./db";
 import { now } from "@/lib/time/clock";
 import type { Source } from "@/lib/tools/webSearch";
 
+// What the agent did for an answer — shown as the "steps" line in the UI.
+export type TurnMeta = {
+  memoryFound?: number; // undefined = memory retrieval didn't run
+  searches: { queries: string[]; startDate?: string }[];
+  notes: string[]; // e.g. fallback-model warnings
+};
+
 export type StoredMessage = {
   id: number;
   role: "user" | "assistant";
   content: string;
   sources: Source[];
+  meta?: TurnMeta;
   createdAt: string;
 };
 
@@ -33,24 +41,40 @@ export function addMessage(
   role: "user" | "assistant",
   content: string,
   sources: Source[] = [],
+  meta?: TurnMeta,
 ): number {
   const result = db
-    .prepare("INSERT INTO messages (conversation_id, role, content, sources, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(conversationId, role, content, sources.length ? JSON.stringify(sources) : null, now().toISOString());
+    .prepare("INSERT INTO messages (conversation_id, role, content, sources, meta, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(
+      conversationId,
+      role,
+      content,
+      sources.length ? JSON.stringify(sources) : null,
+      meta ? JSON.stringify(meta) : null,
+      now().toISOString(),
+    );
   return Number(result.lastInsertRowid);
 }
 
-type MessageRow = { id: number; role: "user" | "assistant"; content: string; sources: string | null; created_at: string };
+type MessageRow = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  sources: string | null;
+  meta: string | null;
+  created_at: string;
+};
 
 export function getMessages(conversationId: string): StoredMessage[] {
   const rows = db
-    .prepare("SELECT id, role, content, sources, created_at FROM messages WHERE conversation_id = ? ORDER BY id")
+    .prepare("SELECT id, role, content, sources, meta, created_at FROM messages WHERE conversation_id = ? ORDER BY id")
     .all(conversationId) as MessageRow[];
   return rows.map((r) => ({
     id: r.id,
     role: r.role,
     content: r.content,
     sources: r.sources ? JSON.parse(r.sources) : [],
+    meta: r.meta ? JSON.parse(r.meta) : undefined,
     createdAt: r.created_at,
   }));
 }

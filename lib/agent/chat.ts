@@ -1,7 +1,7 @@
 import { runAgent } from "./run";
 import { normalizeCitations } from "./citations";
 import type { AgentEvent } from "./events";
-import { addMessage, conversationExists, createConversation, getMessages } from "@/lib/memory/store";
+import { addMessage, conversationExists, createConversation, getMessages, type TurnMeta } from "@/lib/memory/store";
 import type { Source } from "@/lib/tools/webSearch";
 import { now } from "@/lib/time/clock";
 import { formatNow, resolveDates } from "@/lib/time/resolve";
@@ -53,9 +53,12 @@ export async function* chatTurn(input: {
 
   let answer = "";
   const sources: Source[] = [];
+  const meta: TurnMeta = { memoryFound: memory?.turns.length, searches: [], notes: [] };
   for await (const event of runAgent(history, contextNote)) {
     if (event.type === "text") answer += event.delta;
     if (event.type === "sources") sources.push(...event.sources);
+    if (event.type === "search") meta.searches.push({ queries: event.queries, startDate: event.startDate });
+    if (event.type === "status" && event.message.startsWith("⚠️")) meta.notes.push(event.message);
     if (event.type === "done") continue; // we send "done" ourselves, after saving
     yield event;
   }
@@ -63,7 +66,7 @@ export async function* chatTurn(input: {
   // Save before "done", so a fast follow-up question always sees this answer.
   if (answer) {
     const text = normalizeCitations(answer);
-    const messageId = addMessage(conversationId, "assistant", text, sources);
+    const messageId = addMessage(conversationId, "assistant", text, sources, meta);
     // Only researched answers have checkable facts worth tracking.
     if (sources.length) recordClaimsInBackground(messageId, text, sources, now().toISOString());
   }
