@@ -26,3 +26,16 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 6. Compact search results
 - 4 results/query, 1 chunk/source, 600 chars max, de-duplicated by URL, numbered [1..n] for citations. Every token of results is re-sent to the model, and Groq's free tier is ~8K tokens/min.
+
+## 7. SQLite (better-sqlite3) + FTS5 for memory
+- **Chose:** a local SQLite file (`data/minimi.db`), raw SQL, FTS5 full-text index on messages.
+- **Rejected:** Postgres (grader must run a DB server), Prisma (no FTS5 support, extra generate step), a vector DB (our queries are mostly "what did I ask on <date>" — a date range in SQL, not semantic similarity).
+- **Why:** zero setup after `npm install`; dates and keywords are exact queries. better-sqlite3 v13 bundles prebuilt binaries for macOS/Linux/Windows, so its compile script is denied (`allowScripts`) — install never needs a C toolchain.
+
+## 8. The server owns conversation history
+- Browser sends only `{conversationId, message}`; the server loads history from SQLite. Single source of truth, survives refresh, and memory retrieval can later search *all* past conversations, not just the open one.
+- Only the last 12 messages go to the model (token budget + latency).
+- Single user, no auth — memory is shared across all conversations by design.
+
+## 9. One clock for the whole app
+- Every timestamp and every "today" goes through `lib/time/clock.ts`. `NOW=` shifts the clock for demos; `setNow()` pins it for evals. Without this, multi-day scenarios ("On Monday we…") are untestable.

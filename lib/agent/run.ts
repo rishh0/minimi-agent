@@ -2,6 +2,7 @@ import type Groq from "groq-sdk";
 import { groq, MODEL } from "@/lib/llm/groq";
 import { webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
 import { systemPrompt } from "./prompt";
+import { now } from "@/lib/time/clock";
 import type { AgentEvent, ChatMessage } from "./events";
 
 type Message = Groq.Chat.ChatCompletionMessageParam;
@@ -14,7 +15,7 @@ const MAX_SEARCH_ROUNDS = 2;
 // The agent loop: call the model; if it asks for web_search, run it, feed the
 // results back, and call again. Stops when the model answers in text.
 export async function* runAgent(history: ChatMessage[]): AsyncGenerator<AgentEvent> {
-  const messages: Message[] = [{ role: "system", content: systemPrompt(new Date()) }, ...history];
+  const messages: Message[] = [{ role: "system", content: systemPrompt(now()) }, ...history];
   const allSources: Source[] = [];
 
   try {

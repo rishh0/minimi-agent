@@ -4,6 +4,7 @@ import type { Source } from "@/lib/tools/webSearch";
 // Starting with typed events (not raw text) means later steps can add
 // "searching…" status and sources without changing the transport.
 export type AgentEvent =
+  | { type: "conversation"; id: string }
   | { type: "status"; message: string }
   | { type: "sources"; sources: Source[] }
   | { type: "text"; delta: string }

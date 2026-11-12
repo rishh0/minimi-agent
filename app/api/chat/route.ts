@@ -1,11 +1,18 @@
-import { runAgent } from "@/lib/agent/run";
-import type { ChatMessage } from "@/lib/agent/events";
+import { z } from "zod";
+import { chatTurn } from "@/lib/agent/chat";
 
 const encoder = new TextEncoder();
 
+const ChatRequest = z.object({
+  conversationId: z.string().optional(),
+  message: z.string().trim().min(1).max(4000),
+});
+
 export async function POST(req: Request) {
-  const { messages } = (await req.json()) as { messages: ChatMessage[] };
-  const events = runAgent(messages);
+  const parsed = ChatRequest.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
+
+  const events = chatTurn(parsed.data);
 
   // Pull-based stream: we only produce the next event when the browser is ready for it.
   const stream = new ReadableStream({
