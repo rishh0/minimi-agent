@@ -15,6 +15,7 @@ export default function Chat() {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -31,6 +32,25 @@ export default function Chat() {
     setConversationId(id);
     window.history.replaceState(null, "", id ? `?c=${id}` : window.location.pathname);
   }
+
+  // One toggle for both layouts: on desktop it hides/shows the sidebar (remembered
+  // per browser), on phones it opens the drawer.
+  function toggleSidebar() {
+    if (!window.matchMedia("(min-width: 768px)").matches) return setDrawerOpen(true);
+    setSidebarCollapsed((collapsed) => {
+      try {
+        localStorage.setItem("sidebarCollapsed", String(!collapsed));
+      } catch {}
+      return !collapsed;
+    });
+  }
+
+  useEffect(() => {
+    try {
+      // Restored after mount (not in useState) so server and client render the same HTML.
+      if (localStorage.getItem("sidebarCollapsed") === "true") setSidebarCollapsed(true);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     refreshConversations();
@@ -161,6 +181,7 @@ export default function Chat() {
         conversations={conversations}
         activeId={conversationId}
         open={drawerOpen}
+        collapsed={sidebarCollapsed}
         onClose={() => setDrawerOpen(false)}
         onOpen={openConversation}
         onNew={newChat}
@@ -168,12 +189,23 @@ export default function Chat() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 md:border-none dark:border-zinc-800">
-          <button onClick={() => setDrawerOpen(true)} aria-label="Open conversations" className="text-xl md:hidden">
-            ☰
+          <button
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Show past chats" : "Hide past chats"}
+            title={sidebarCollapsed ? "Show past chats" : "Hide past chats"}
+            className="-ml-1 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <rect x="3" y="4" width="18" height="16" rx="2.5" />
+              <path d="M9 4v16" />
+            </svg>
           </button>
           <span className="font-semibold">Minimi Agent</span>
-          <button onClick={newChat} className="ml-auto text-sm text-zinc-500 md:hidden">
-            + New
+          <button
+            onClick={newChat}
+            className={`ml-auto text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 ${sidebarCollapsed ? "" : "md:hidden"}`}
+          >
+            + New chat
           </button>
         </header>
 

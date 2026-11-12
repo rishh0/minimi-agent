@@ -16,6 +16,7 @@ export function Sidebar(props: {
   conversations: Conversation[];
   activeId?: string;
   open: boolean; // mobile drawer
+  collapsed: boolean; // desktop: hidden by the header toggle
   onClose: () => void;
   onOpen: (id: string) => void;
   onNew: () => void;
@@ -32,7 +33,7 @@ export function Sidebar(props: {
       <aside
         className={`fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r border-zinc-200 bg-zinc-50 p-3 transition-transform md:static md:w-64 md:translate-x-0 dark:border-zinc-800 dark:bg-zinc-950 ${
           props.open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        } ${props.collapsed ? "md:hidden" : ""}`}
       >
         <button
           onClick={props.onNew}
