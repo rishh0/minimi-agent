@@ -94,3 +94,8 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 21. Optional demo seed
 - A fresh install has no history, so the example questions correctly get "no record". `npm run seed-demo` creates those conversations on the right days relative to today (same resolver as the agent), clearly labelled as optional demo data.
+
+## 22. Degrade gracefully on provider limits
+- Found in the fresh-clone test: Groq's free tier also has a daily cap (200K tokens/day for gpt-oss-120b ≈ 30 search-heavy turns). The user saw a raw JSON error and no answer.
+- **Fix:** limits are per model, so on a daily-limit 429 the turn continues on `gpt-oss-20b` with a visible "⚠️ smaller model" status. All provider errors are mapped to short, actionable messages (rate limit + wait time, invalid key).
+- Also: `app/layout.tsx` used Next's generated `LayoutProps` type, which doesn't exist in a fresh clone until the first `next dev` → plain `{ children: React.ReactNode }`.

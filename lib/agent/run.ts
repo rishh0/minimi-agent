@@ -1,5 +1,5 @@
 import type Groq from "groq-sdk";
-import { groq, MODEL } from "@/lib/llm/groq";
+import { FALLBACK_MODEL, friendlyError, groq, isDailyLimit, MODEL } from "@/lib/llm/groq";
 import { isEvergreenQuery, normalizeArgs, webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
 import { SYSTEM_PROMPT } from "./prompt";
 import type { AgentEvent, ChatMessage } from "./events";
@@ -37,20 +37,32 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
   try {
     let searchRounds = 0;
     let queriesUsed = 0;
+    let model = MODEL;
     for (let modelCall = 0; modelCall < MAX_MODEL_CALLS; modelCall++) {
       const callStart = performance.now();
-      const stream = await groq.chat.completions.create({
-        model: MODEL,
-        stream: true,
-        messages,
-        tools: [webSearchTool],
-        tool_choice: "auto",
-        temperature: 0.3,
-        // Spend reasoning where it matters. Planning searches is easy → "low" (cut ~800
-        // reasoning tokens, which count toward the rate limit). Judging results — dates,
-        // what actually changed — is where accuracy is decided → default effort.
-        reasoning_effort: searchRounds === 0 ? "low" : "medium",
-      });
+      const request = () =>
+        groq.chat.completions.create({
+          model,
+          stream: true,
+          messages,
+          tools: [webSearchTool],
+          tool_choice: "auto",
+          temperature: 0.3,
+          // Spend reasoning where it matters. Planning searches is easy → "low" (cut ~800
+          // reasoning tokens, which count toward the rate limit). Judging results — dates,
+          // what actually changed — is where accuracy is decided → default effort.
+          reasoning_effort: searchRounds === 0 ? "low" : "medium",
+        });
+      let stream;
+      try {
+        stream = await request();
+      } catch (err) {
+        // Main model out of daily quota → finish the turn on the fallback model.
+        if (!isDailyLimit(err) || model === FALLBACK_MODEL) throw err;
+        model = FALLBACK_MODEL;
+        yield { type: "status", message: "⚠️ Main model's daily limit reached — answering with a smaller model" };
+        stream = await request();
+      }
 
       // Text streams straight to the user. Tool calls arrive in fragments
       // (by index) and must be stitched together before we can parse them.
@@ -130,7 +142,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
     yield { type: "error", message: "I couldn't finish this answer. Please try rephrasing the question." };
     yield { type: "done" };
   } catch (err) {
-    yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+    yield { type: "error", message: friendlyError(err) };
   }
 }
 

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description: "Chat agent with web search and memory",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
