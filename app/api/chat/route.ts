@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { chatTurn } from "@/lib/agent/chat";
+import { isValidTimeZone } from "@/lib/time/resolve";
 
 const encoder = new TextEncoder();
 
 const ChatRequest = z.object({
   conversationId: z.string().optional(),
   message: z.string().trim().min(1).max(4000),
+  // "3 November" means the user's calendar day, so the browser tells us its timezone.
+  timeZone: z.string().refine(isValidTimeZone).catch("UTC"),
 });
 
 export async function POST(req: Request) {

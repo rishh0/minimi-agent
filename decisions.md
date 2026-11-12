@@ -39,3 +39,13 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 9. One clock for the whole app
 - Every timestamp and every "today" goes through `lib/time/clock.ts`. `NOW=` shifts the clock for demos; `setNow()` pins it for evals. Without this, multi-day scenarios ("On Monday we…") are untestable.
+
+## 10. Dates are resolved in code, in the user's timezone
+- **Chose:** `chrono-node` + our own rules in `lib/time/resolve.ts` → exact ranges (`startDate`/`endDate` local, `startUtc`/`endUtc` for DB queries). The browser sends its IANA timezone; invalid → UTC.
+- **Rejected:** letting the LLM do date math; using server time or UTC days.
+- **Why:** "3 November" is the user's calendar day (in India it starts 18:30 UTC on 2 Nov). These ranges become database queries, so they must be exact.
+- Rules on top of chrono: "since X" → X..today; "last week" → previous Mon–Sun; "between A and B" → one range.
+- chrono applies its timezone option only to explicit dates, not relative ones ("yesterday") — caught by a unit test; fixed by passing a wall-clock reference date. Tests run under 4 server timezones.
+
+## 11. Stable system prompt, volatile context last
+- The system prompt contains nothing that changes per request. Time context (now + resolved dates) is a separate system message after the history, so the prefix stays identical and cacheable (Groq: cached tokens don't count toward rate limits).

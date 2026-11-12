@@ -1,8 +1,7 @@
 import type Groq from "groq-sdk";
 import { groq, MODEL } from "@/lib/llm/groq";
 import { webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
-import { systemPrompt } from "./prompt";
-import { now } from "@/lib/time/clock";
+import { SYSTEM_PROMPT } from "./prompt";
 import type { AgentEvent, ChatMessage } from "./events";
 
 type Message = Groq.Chat.ChatCompletionMessageParam;
@@ -14,8 +13,14 @@ const MAX_SEARCH_ROUNDS = 2;
 
 // The agent loop: call the model; if it asks for web_search, run it, feed the
 // results back, and call again. Stops when the model answers in text.
-export async function* runAgent(history: ChatMessage[]): AsyncGenerator<AgentEvent> {
-  const messages: Message[] = [{ role: "system", content: systemPrompt(now()) }, ...history];
+// `contextNote` carries per-request facts (current time, resolved dates). It goes
+// AFTER the history so the stable prefix (system prompt + history) stays cacheable.
+export async function* runAgent(history: ChatMessage[], contextNote: string): AsyncGenerator<AgentEvent> {
+  const messages: Message[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history,
+    { role: "system", content: contextNote },
+  ];
   const allSources: Source[] = [];
 
   try {
@@ -68,7 +73,12 @@ export async function* runAgent(history: ChatMessage[]): AsyncGenerator<AgentEve
           continue;
         }
         // Tell the user what we're doing *before* the slow part starts.
-        yield { type: "status", message: `Searching: ${parsed.args.queries.join(" · ")}` };
+        const filter = parsed.args.start_date
+          ? ` (since ${parsed.args.start_date})`
+          : parsed.args.time_range
+            ? ` (past ${parsed.args.time_range})`
+            : "";
+        yield { type: "status", message: `Searching${filter}: ${parsed.args.queries.join(" · ")}` };
         const { text: results, sources } = await webSearch(parsed.args, allSources.length);
         allSources.push(...sources);
         if (sources.length) yield { type: "sources", sources };
