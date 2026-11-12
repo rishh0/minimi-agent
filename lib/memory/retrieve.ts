@@ -1,6 +1,7 @@
 import { db } from "./db";
 import type { DateRef } from "@/lib/time/resolve";
 import { isAboutMemory, keywordQuery } from "./keywords";
+import { getClaims, type Claim } from "./store";
 
 // Memory retrieval runs BEFORE the model, in code — it is not a second tool.
 // Reasons: the brief allows one tool (web search); it saves a model round-trip;
@@ -11,6 +12,7 @@ export type Turn = {
   askedAt: string; // ISO UTC
   question: string;
   answer?: string;
+  claims: Claim[]; // checkable facts extracted from the answer (may be empty)
 };
 
 export type MemoryResult = { searchedFor: string; turns: Turn[] };
@@ -101,7 +103,13 @@ function turnFor(userId: number): Turn | null {
     .get(userId) as { content: string; created_at: string; conv: string; title: string } | undefined;
   if (!q) return null;
   const a = db
-    .prepare("SELECT content FROM messages WHERE conversation_id = ? AND id > ? AND role = 'assistant' ORDER BY id LIMIT 1")
-    .get(q.conv, userId) as { content: string } | undefined;
-  return { conversationTitle: q.title, askedAt: q.created_at, question: q.content, answer: a?.content };
+    .prepare("SELECT id, content FROM messages WHERE conversation_id = ? AND id > ? AND role = 'assistant' ORDER BY id LIMIT 1")
+    .get(q.conv, userId) as { id: number; content: string } | undefined;
+  return {
+    conversationTitle: q.title,
+    askedAt: q.created_at,
+    question: q.content,
+    answer: a?.content,
+    claims: a ? getClaims(a.id) : [],
+  };
 }

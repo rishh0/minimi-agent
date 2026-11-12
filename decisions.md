@@ -58,3 +58,15 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 ## 13. Never let a model mistake become a crash
 - Groq validates tool calls server-side and fails the whole request on a schema mismatch (e.g. 5 queries when max is 3). → The schema the model sees is lenient; `normalizeArgs` clamps to 3 queries and drops malformed filters in code.
 - `tool_choice: "none"` (and even removing tools) still made gpt-oss try to search → Groq error. → The tool always stays available; after 2 search rounds, extra calls get "limit reached, answer now" as their result. Hard stop at 4 model calls.
+
+## 14. Claims: structured facts extracted from every researched answer
+- **Chose:** after a researched answer is saved, a smaller model (`gpt-oss-20b`, strict JSON schema, low reasoning effort) extracts `{entity, attribute, value, source}` into a `claims` table, in the background (the user never waits). Memory notes show these facts, so "still correct?" re-checks each one.
+- **Rejected:** re-reading the prose answer (imprecise, more tokens); extracting synchronously (adds ~1s before "done"); using the big model (overkill for extraction).
+- `observed_at` = when we saw the value. Duplicates (same fact from two sources) are collapsed. `waitForClaims()` lets scripts/evals wait for background work.
+
+## 15. Enforce search rules in code, not just in the prompt
+- The model kept adding "past day" date filters to pricing searches despite three prompt instructions → pricing pages (old URL, current price) were filtered out → "not verified" for 4 of 5 CRMs.
+- **Fix:** removed `time_range` (one filter, `start_date`, matching our resolved dates), and code never applies a date filter to pricing/plan/limit queries. Up to 5 queries per call, one product per query. Result: 5 of 5 CRMs verified.
+
+## 16. tsx for scripts
+- Scripts and evals import `lib/` through the `@/` path alias, which plain Node can't resolve; `tsx` reads tsconfig paths. Its esbuild dependency ships platform binaries, so esbuild's install script is denied too.

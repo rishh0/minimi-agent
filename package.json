@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check-keys": "node --env-file=.env.local scripts/check-keys.mts",
-    "test": "node --test 'lib/**/*.test.ts'"
+    "test": "node --test 'lib/**/*.test.ts'",
+    "backfill-claims": "tsx --env-file=.env.local scripts/backfill-claims.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.1.1",
@@ -28,12 +29,14 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   },
   "engines": {
     "node": ">=22"
   },
   "allowScripts": {
-    "better-sqlite3": false
+    "better-sqlite3": false,
+    "esbuild": false
   }
 }

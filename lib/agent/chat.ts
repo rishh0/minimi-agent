@@ -7,6 +7,7 @@ import { now } from "@/lib/time/clock";
 import { formatNow, resolveDates } from "@/lib/time/resolve";
 import { memoryNote, timeContext } from "./prompt";
 import { retrieveMemory } from "@/lib/memory/retrieve";
+import { recordClaimsInBackground } from "@/lib/claims/extract";
 
 // Only the most recent turns go to the model: long chats would blow through
 // Groq's ~8K tokens/minute free tier and slow every request down.
@@ -54,6 +55,11 @@ export async function* chatTurn(input: {
   }
 
   // Save before "done", so a fast follow-up question always sees this answer.
-  if (answer) addMessage(conversationId, "assistant", normalizeCitations(answer), sources);
+  if (answer) {
+    const text = normalizeCitations(answer);
+    const messageId = addMessage(conversationId, "assistant", text, sources);
+    // Only researched answers have checkable facts worth tracking.
+    if (sources.length) recordClaimsInBackground(messageId, text, sources, now().toISOString());
+  }
   yield { type: "done" };
 }

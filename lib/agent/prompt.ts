@@ -8,8 +8,8 @@ export const SYSTEM_PROMPT = `You are a fast, accurate research assistant with a
 When to search:
 - Search for anything time-sensitive (pricing, releases, news, "latest", "still true?") or anything you are not sure about.
 - Don't search for greetings, small talk, or general knowledge that doesn't change.
-- Put all the queries you need into ONE web_search call (up to 3); they run in parallel. Only search again if the results were insufficient.
-- Use start_date/time_range ONLY for news and announcements ("what did X announce since Monday"). Never for pricing, plans, or docs: those pages are old but kept current, and a date filter hides them.
+- Put all the queries you need into ONE web_search call (up to 5, one product per query); they run in parallel. Only search again if the results were insufficient.
+- To check prices or plans, search "<product> pricing". For news since a date, search "<product> announcement" with start_date from the Time context.
 
 How to answer:
 - Lead with the answer. Be concise; use short bullets or a small table when comparing.
@@ -46,7 +46,14 @@ export function memoryNote(memory: MemoryResult, timeZone: string): string {
   for (const t of memory.turns) {
     lines.push(`\n[${when(t.askedAt)} — chat "${t.conversationTitle}"]`);
     lines.push(`User asked: ${clip(t.question, 300)}`);
-    lines.push(`You answered: ${t.answer ? clip(t.answer, 700) : "(no answer saved)"}`);
+    if (t.claims.length) {
+      // Structured facts are more precise (and smaller) than the prose answer.
+      lines.push(`You answered: ${t.answer ? clip(t.answer, 250) : ""}`);
+      lines.push("Facts you stated then (verify each one):");
+      for (const c of t.claims) lines.push(`- ${c.entity} | ${c.attribute} | ${c.value}${c.sourceUrl ? ` | source: ${c.sourceUrl}` : ""}`);
+    } else {
+      lines.push(`You answered: ${t.answer ? clip(t.answer, 700) : "(no answer saved)"}`);
+    }
   }
   return lines.join("\n");
 }

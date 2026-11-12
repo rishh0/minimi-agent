@@ -1,6 +1,6 @@
 import type Groq from "groq-sdk";
 import { groq, MODEL } from "@/lib/llm/groq";
-import { normalizeArgs, webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
+import { isEvergreenQuery, normalizeArgs, webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
 import { SYSTEM_PROMPT } from "./prompt";
 import type { AgentEvent, ChatMessage } from "./events";
 
@@ -12,6 +12,11 @@ type ToolCall = { id: string; name: string; arguments: string };
 // (the tool is never removed: gpt-oss calls it anyway and Groq turns that into an error).
 const MAX_SEARCH_ROUNDS = 2;
 const MAX_MODEL_CALLS = 4; // hard stop, so a model that keeps asking can't loop forever
+
+// LOG_TIMINGS=1 prints where each turn's time goes (model calls vs searches).
+const timing = (label: string, start: number) => {
+  if (process.env.LOG_TIMINGS) console.log(`[timing] ${label}: ${Math.round(performance.now() - start)} ms`);
+};
 
 // The agent loop: call the model; if it asks for web_search, run it, feed the
 // results back, and call again. Stops when the model answers in text.
@@ -28,6 +33,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
   try {
     let searchRounds = 0;
     for (let modelCall = 0; modelCall < MAX_MODEL_CALLS; modelCall++) {
+      const callStart = performance.now();
       const stream = await groq.chat.completions.create({
         model: MODEL,
         stream: true,
@@ -41,7 +47,10 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
       // (by index) and must be stitched together before we can parse them.
       const toolCalls: ToolCall[] = [];
       let text = "";
+      let firstChunk = true;
       for await (const chunk of stream) {
+        if (firstChunk) timing(`model call ${modelCall + 1}: first chunk`, callStart);
+        firstChunk = false;
         const delta = chunk.choices[0]?.delta;
         if (delta?.content) {
           text += delta.content;
@@ -55,6 +64,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         }
       }
 
+      timing(`model call ${modelCall + 1}: complete`, callStart);
       if (toolCalls.length === 0) {
         yield { type: "done" }; // the model answered — we're done
         return;
@@ -80,14 +90,13 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
           messages.push({ role: "tool", tool_call_id: call.id, content });
           continue;
         }
-        const filter = parsed.args.start_date
-          ? ` (since ${parsed.args.start_date})`
-          : parsed.args.time_range
-            ? ` (past ${parsed.args.time_range})`
-            : "";
         // Tell the user what we're doing *before* the slow part starts.
-        yield { type: "status", message: `🔎 Searching${filter}: ${parsed.args.queries.join(" · ")}` };
+        const since = parsed.args.start_date;
+        const shown = parsed.args.queries.map((q) => (since && !isEvergreenQuery(q) ? `${q} (since ${since})` : q));
+        yield { type: "status", message: `🔎 Searching: ${shown.join(" · ")}` };
+        const searchStart = performance.now();
         const { text: results, sources } = await webSearch(parsed.args, allSources.length);
+        timing(`search (${parsed.args.queries.length} queries)`, searchStart);
         allSources.push(...sources);
         if (sources.length) yield { type: "sources", sources };
         messages.push({ role: "tool", tool_call_id: call.id, content: results });

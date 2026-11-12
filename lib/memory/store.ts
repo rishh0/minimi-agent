@@ -33,10 +33,11 @@ export function addMessage(
   role: "user" | "assistant",
   content: string,
   sources: Source[] = [],
-) {
-  db.prepare(
-    "INSERT INTO messages (conversation_id, role, content, sources, created_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(conversationId, role, content, sources.length ? JSON.stringify(sources) : null, now().toISOString());
+): number {
+  const result = db
+    .prepare("INSERT INTO messages (conversation_id, role, content, sources, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(conversationId, role, content, sources.length ? JSON.stringify(sources) : null, now().toISOString());
+  return Number(result.lastInsertRowid);
 }
 
 type MessageRow = { id: number; role: "user" | "assistant"; content: string; sources: string | null; created_at: string };
@@ -58,4 +59,25 @@ export function listConversations(): Conversation[] {
   return db
     .prepare("SELECT id, title, created_at AS createdAt FROM conversations ORDER BY created_at DESC")
     .all() as Conversation[];
+}
+
+export type Claim = { entity: string; attribute: string; value: string; sourceUrl: string | null; observedAt: string };
+
+export function saveClaims(messageId: number, claims: Omit<Claim, "observedAt">[], observedAt: string) {
+  const insert = db.prepare(
+    "INSERT INTO claims (message_id, entity, attribute, value, source_url, observed_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  // One transaction: all claims for an answer are saved, or none are.
+  db.transaction(() => {
+    for (const c of claims) insert.run(messageId, c.entity, c.attribute, c.value, c.sourceUrl, observedAt);
+  })();
+}
+
+export function getClaims(messageId: number): Claim[] {
+  return db
+    .prepare(
+      `SELECT entity, attribute, value, source_url AS sourceUrl, observed_at AS observedAt
+         FROM claims WHERE message_id = ? ORDER BY entity, id`,
+    )
+    .all(messageId) as Claim[];
 }

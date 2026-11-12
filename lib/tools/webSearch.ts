@@ -6,29 +6,33 @@ import { z } from "zod";
 export const webSearchArgs = z.object({
   queries: z
     .array(z.string())
-    .describe("Up to 3 distinct search queries. They run in parallel, so split multi-part questions."),
-  time_range: z
-    .string()
-    .optional()
-    .describe('"day", "week", "month" or "year". Only results published within this window. For news only — not for pricing or docs pages.'),
+    .describe(
+      "Up to 5 distinct search queries, ONE product/company per query (never join names with OR). They run in parallel.",
+    ),
   start_date: z
     .string()
     .optional()
-    .describe("YYYY-MM-DD. Only results published after this date. For news/announcements only — not for pricing or docs pages."),
+    .describe(
+      "YYYY-MM-DD. For news/announcement queries: only results published after this date (use the dates from the Time context). Ignored for pricing/plan queries.",
+    ),
 });
 
-export type WebSearchArgs = { queries: string[]; time_range?: "day" | "week" | "month" | "year"; start_date?: string };
+export type WebSearchArgs = { queries: string[]; start_date?: string };
 
-const MAX_QUERIES = 3;
+const MAX_QUERIES = 5;
 
-// Model output → safe arguments: trim/dedupe queries, keep the first 3, drop invalid filters.
+// Model output → safe arguments: trim/dedupe queries, keep the first 5, drop a malformed date.
 export function normalizeArgs(raw: z.infer<typeof webSearchArgs>): WebSearchArgs | null {
   const queries = [...new Set(raw.queries.map((q) => q.trim()).filter((q) => q.length >= 2))].slice(0, MAX_QUERIES);
   if (!queries.length) return null;
-  const time_range = (["day", "week", "month", "year"] as const).find((r) => r === raw.time_range);
   const start_date = raw.start_date && /^\d{4}-\d{2}-\d{2}$/.test(raw.start_date) ? raw.start_date : undefined;
-  return { queries, time_range, start_date };
+  return { queries, start_date };
 }
+
+// Pricing/plan pages are old pages kept up to date: a "published after" filter hides
+// exactly the page we need. The model was told this and ignored it, so code enforces it.
+const EVERGREEN = /\b(pric\w*|cost\w*|plans?|tiers?|per[- ]seat|seats?|quotas?|limits?|free tier|subscription)\b/i;
+export const isEvergreenQuery = (q: string) => EVERGREEN.test(q);
 
 export const webSearchTool = {
   type: "function" as const,
@@ -46,8 +50,8 @@ type TavilyResult = { title: string; url: string; content: string; published_dat
 
 // Keep results small: Groq's free tier allows ~8K tokens/minute, and every
 // token of search results is re-sent to the model on the next call.
-const MAX_RESULTS_PER_QUERY = 4;
-const MAX_CHARS_PER_RESULT = 600;
+const MAX_RESULTS_PER_QUERY = 3;
+const MAX_CHARS_PER_RESULT = 500;
 
 async function tavilySearch(query: string, args: WebSearchArgs): Promise<TavilyResult[]> {
   const res = await fetch("https://api.tavily.com/search", {
@@ -62,10 +66,9 @@ async function tavilySearch(query: string, args: WebSearchArgs): Promise<TavilyR
       max_results: MAX_RESULTS_PER_QUERY,
       chunks_per_source: 1,
       include_published_date: true,
-      time_range: args.time_range,
-      start_date: args.start_date,
+      start_date: isEvergreenQuery(query) ? undefined : args.start_date,
     }),
-    signal: AbortSignal.timeout(10_000), // a hung search must not hang the chat
+    signal: AbortSignal.timeout(6_000), // normal: 1.5–3s. A hung query must not hold up the others
   });
   if (!res.ok) throw new Error(`Tavily ${res.status}`);
   const data = (await res.json()) as { results: TavilyResult[] };

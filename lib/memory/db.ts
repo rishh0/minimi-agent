@@ -32,6 +32,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
 CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+-- Checkable facts pulled out of each researched answer ("Neon | Launch compute price | $0.106/CU-hour").
+-- "Is your answer still correct?" re-verifies these one by one instead of re-reading prose.
+CREATE TABLE IF NOT EXISTS claims (
+  id          INTEGER PRIMARY KEY,
+  message_id  INTEGER NOT NULL REFERENCES messages(id),
+  entity      TEXT NOT NULL,          -- product/company, e.g. "Neon"
+  attribute   TEXT NOT NULL,          -- e.g. "Launch plan compute price"
+  value       TEXT NOT NULL,          -- e.g. "$0.106 per CU-hour"
+  source_url  TEXT,
+  observed_at TEXT NOT NULL           -- when we saw this value (ISO, UTC)
+);
+CREATE INDEX IF NOT EXISTS claims_by_message ON claims(message_id);
 `;
 
 function open() {
@@ -39,10 +52,12 @@ function open() {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL"); // readers don't block the writer
   db.pragma("foreign_keys = ON");
-  db.exec(SCHEMA);
   return db;
 }
 
 // Next.js dev mode re-imports modules on every edit; keep one connection alive across reloads.
 const globalForDb = globalThis as unknown as { db?: Database.Database };
 export const db = (globalForDb.db ??= open());
+// Idempotent (IF NOT EXISTS), so it's safe on every load — and a reused connection
+// still picks up tables added since it was opened.
+db.exec(SCHEMA);
