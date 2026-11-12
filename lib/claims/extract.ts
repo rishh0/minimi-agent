@@ -18,9 +18,11 @@ const ClaimsSchema = z.object({
         // ([20][21]); a single-number schema made Groq reject the whole output.
         sources: z.array(z.number().int()),
       }),
-    )
-    .max(20),
+    ),
+  // No .max() here: Groq rejects the WHOLE output when a limit is exceeded (a long
+  // comparison produced 54 claims). Accept everything, cap in code below.
 });
+const MAX_CLAIMS = 25;
 
 const PROMPT = `You extract checkable facts from an assistant's answer so they can be re-verified later.
 
@@ -30,7 +32,7 @@ Rules:
 - attribute: what the fact describes, specific enough to re-check on its own (e.g. "Launch plan compute price", "Free tier storage limit").
 - value: the exact value as stated, with units and conditions.
 - sources: the citation numbers [n] the answer used for this fact (empty list if none).
-- Skip opinions, advice, and timeless general knowledge. At most 15 claims. If there are none, return an empty list.`;
+- Skip opinions, advice, timeless general knowledge, and "no change found" statements. Prefer the most important facts (prices first). At most 20 claims. If there are none, return an empty list.`;
 
 export async function extractClaims(answer: string, sources: Source[]): Promise<Omit<Claim, "observedAt">[]> {
   const res = await groq.chat.completions.create({
@@ -52,6 +54,7 @@ export async function extractClaims(answer: string, sources: Source[]): Promise<
   // The same fact is often cited from two sources — keep one row per entity + attribute.
   const seen = new Set<string>();
   return parsed.claims
+    .slice(0, MAX_CLAIMS)
     .filter((c) => {
       const key = `${c.entity}|${c.attribute}`.toLowerCase();
       return !seen.has(key) && seen.add(key);

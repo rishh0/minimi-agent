@@ -110,6 +110,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         // Tell the user what we're doing *before* the slow part starts.
         const since = parsed.args.start_date;
         const shown = parsed.args.queries.map((q) => (since && !isEvergreenQuery(q) ? `${q} (since ${since})` : q));
+        yield { type: "search", queries: parsed.args.queries, startDate: since };
         yield { type: "status", message: `🔎 Searching: ${shown.join(" · ")}` };
         const searchStart = performance.now();
         const { text: results, sources } = await webSearch(parsed.args, allSources.length);

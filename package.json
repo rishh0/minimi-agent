@@ -9,7 +9,9 @@
     "lint": "eslint",
     "check-keys": "node --env-file=.env.local scripts/check-keys.mts",
     "test": "node --test 'lib/**/*.test.ts'",
-    "backfill-claims": "tsx --env-file=.env.local scripts/backfill-claims.mts"
+    "backfill-claims": "tsx --env-file=.env.local scripts/backfill-claims.mts",
+    "eval": "tsx --env-file=.env.local evals/run.mts",
+    "seed-demo": "tsx --env-file=.env.local scripts/seed-demo.mts"
   },
   "dependencies": {
     "better-sqlite3": "^13.1.1",

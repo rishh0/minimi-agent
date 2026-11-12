@@ -85,3 +85,12 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 19. Markdown rendering with linked citations
 - `react-markdown` + `remark-gfm` (tables). `[n]` citations become links to the source URL; unknown numbers stay plain text.
+
+## 20. Scenario evals with a fake clock and an in-memory DB
+- `npm run eval` replays multi-day conversations (the three example questions, no-record, timezone "yesterday", a dated world question, small talk) through `chatTurn` directly — no server — with `setNow()` per turn and `DB_PATH=:memory:`.
+- Checks are on behaviour, read from structured events (`memory`, `search`) rather than parsed status text: memory hits, query counts, date filters, latency, citations, "no record" wording.
+- **Rejected for now:** an LLM judge (costs tokens against the same rate limit, adds variance); listed under "another week".
+- First full run: 38/38. Reading the logs (not just the checks) still found two bugs: a 54-claim answer broke a `max(20)` schema (cap in code instead), and a `【Memory】` marker leaked through citation cleanup.
+
+## 21. Optional demo seed
+- A fresh install has no history, so the example questions correctly get "no record". `npm run seed-demo` creates those conversations on the right days relative to today (same resolver as the agent), clearly labelled as optional demo data.

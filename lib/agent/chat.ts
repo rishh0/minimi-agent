@@ -45,6 +45,7 @@ export async function* chatTurn(input: {
   // Step 2: if the user is asking about past conversations, look them up (SQL, ~1ms).
   const memory = retrieveMemory({ message: input.message, dateRefs, excludeConversationId: conversationId });
   if (memory) {
+    yield { type: "memory", found: memory.turns.length };
     yield { type: "status", message: `📚 Checked memory: ${memory.turns.length} past question(s) found` };
     notes.push(memoryNote(memory, input.timeZone));
   }
