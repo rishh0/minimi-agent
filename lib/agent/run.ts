@@ -7,10 +7,14 @@ import type { AgentEvent, ChatMessage } from "./events";
 type Message = Groq.Chat.ChatCompletionMessageParam;
 type ToolCall = { id: string; name: string; arguments: string };
 
-// Each search round costs ~1.5-3s, so an agent that keeps searching is slow, not thorough.
-// After MAX_SEARCH_ROUNDS, further tool calls get "limit reached" as their result
-// (the tool is never removed: gpt-oss calls it anyway and Groq turns that into an error).
+// Search budget per turn. Every extra round costs ~2-3s of search plus a full model call
+// (~5K tokens — over Groq's free tier of 8K/min that means a rate-limit wait).
+// So the limit is on queries, not rounds: one round of 10 parallel queries is the
+// whole budget; small rounds leave room for a follow-up. Over-budget calls get
+// "limit reached" as their result (the tool is never removed: gpt-oss calls it
+// anyway and Groq turns that into an error).
 const MAX_SEARCH_ROUNDS = 2;
+const MAX_QUERIES_PER_TURN = 10;
 const MAX_MODEL_CALLS = 4; // hard stop, so a model that keeps asking can't loop forever
 
 // LOG_TIMINGS=1 prints where each turn's time goes (model calls vs searches).
@@ -32,6 +36,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
 
   try {
     let searchRounds = 0;
+    let queriesUsed = 0;
     for (let modelCall = 0; modelCall < MAX_MODEL_CALLS; modelCall++) {
       const callStart = performance.now();
       const stream = await groq.chat.completions.create({
@@ -41,6 +46,10 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         tools: [webSearchTool],
         tool_choice: "auto",
         temperature: 0.3,
+        // Spend reasoning where it matters. Planning searches is easy → "low" (cut ~800
+        // reasoning tokens, which count toward the rate limit). Judging results — dates,
+        // what actually changed — is where accuracy is decided → default effort.
+        reasoning_effort: searchRounds === 0 ? "low" : "medium",
       });
 
       // Text streams straight to the user. Tool calls arrive in fragments
@@ -51,6 +60,12 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
       for await (const chunk of stream) {
         if (firstChunk) timing(`model call ${modelCall + 1}: first chunk`, callStart);
         firstChunk = false;
+        const usage = chunk.x_groq?.usage;
+        if (usage && process.env.LOG_TIMINGS) {
+          const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
+          const reasoning = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+          console.log(`[tokens] call ${modelCall + 1}: prompt ${usage.prompt_tokens} (cached ${cached}), output ${usage.completion_tokens} (reasoning ${reasoning})`);
+        }
         const delta = chunk.choices[0]?.delta;
         if (delta?.content) {
           text += delta.content;
@@ -80,7 +95,7 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         })),
       });
 
-      const budgetLeft = searchRounds < MAX_SEARCH_ROUNDS;
+      const budgetLeft = searchRounds < MAX_SEARCH_ROUNDS && queriesUsed < MAX_QUERIES_PER_TURN;
       for (const call of toolCalls) {
         const parsed = parseToolCall(call);
         if (!parsed.ok || !budgetLeft) {
@@ -90,6 +105,8 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
           messages.push({ role: "tool", tool_call_id: call.id, content });
           continue;
         }
+        parsed.args.queries = parsed.args.queries.slice(0, MAX_QUERIES_PER_TURN - queriesUsed);
+        queriesUsed += parsed.args.queries.length;
         // Tell the user what we're doing *before* the slow part starts.
         const since = parsed.args.start_date;
         const shown = parsed.args.queries.map((q) => (since && !isEvergreenQuery(q) ? `${q} (since ${since})` : q));
@@ -99,7 +116,13 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         timing(`search (${parsed.args.queries.length} queries)`, searchStart);
         allSources.push(...sources);
         if (sources.length) yield { type: "sources", sources };
-        messages.push({ role: "tool", tool_call_id: call.id, content: results });
+        // On the last allowed round, say so in the results — otherwise the model often
+        // asks for another search, which costs a whole extra model call (~5K tokens).
+        const last = searchRounds + 1 >= MAX_SEARCH_ROUNDS || queriesUsed >= MAX_QUERIES_PER_TURN;
+        const note = last
+          ? "\n\n(This was your final search. Answer now from these results; say what you could not verify.)"
+          : "\n\n(Search again only if something essential is missing.)";
+        messages.push({ role: "tool", tool_call_id: call.id, content: results + note });
       }
       if (budgetLeft) searchRounds++;
     }

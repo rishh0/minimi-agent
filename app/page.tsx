@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AgentEvent } from "@/lib/agent/events";
-import { normalizeCitations } from "@/lib/agent/citations";
+import { Markdown } from "./components/Markdown";
 import type { Conversation, StoredMessage } from "@/lib/memory/store";
 import type { Source } from "@/lib/tools/webSearch";
 
@@ -140,11 +140,17 @@ export default function Chat() {
                 className={
                   m.role === "user"
                     ? "max-w-[85%] rounded-2xl bg-zinc-200 px-4 py-2 dark:bg-zinc-800"
-                    : "whitespace-pre-wrap leading-relaxed"
+                    : "min-w-0"
                 }
               >
                 {m.status && <p className="text-sm text-zinc-500">{m.status}</p>}
-                {normalizeCitations(m.content) || (busy && i === messages.length - 1 && !m.status ? "…" : "")}
+                {m.role === "user" ? (
+                  m.content
+                ) : m.content ? (
+                  <Markdown text={m.content} sources={m.sources} />
+                ) : busy && i === messages.length - 1 && !m.status ? (
+                  "…"
+                ) : null}
                 {m.sources && m.sources.length > 0 && (
                   <ol className="mt-3 space-y-1 border-t border-zinc-200 pt-2 text-sm dark:border-zinc-800">
                     {m.sources.map((s) => (

@@ -7,7 +7,7 @@ export const webSearchArgs = z.object({
   queries: z
     .array(z.string())
     .describe(
-      "Up to 5 distinct search queries, ONE product/company per query (never join names with OR). They run in parallel.",
+      "Up to 10 distinct search queries, ONE product/company per query (never join names with OR). They run in parallel — include every query you need (e.g. pricing AND news) in this one call.",
     ),
   start_date: z
     .string()
@@ -19,9 +19,9 @@ export const webSearchArgs = z.object({
 
 export type WebSearchArgs = { queries: string[]; start_date?: string };
 
-const MAX_QUERIES = 5;
+const MAX_QUERIES = 10;
 
-// Model output → safe arguments: trim/dedupe queries, keep the first 5, drop a malformed date.
+// Model output → safe arguments: trim/dedupe queries, keep the first 10, drop a malformed date.
 export function normalizeArgs(raw: z.infer<typeof webSearchArgs>): WebSearchArgs | null {
   const queries = [...new Set(raw.queries.map((q) => q.trim()).filter((q) => q.length >= 2))].slice(0, MAX_QUERIES);
   if (!queries.length) return null;
@@ -48,10 +48,11 @@ export type Source = { id: number; title: string; url: string; published?: strin
 
 type TavilyResult = { title: string; url: string; content: string; published_date?: string | null };
 
-// Keep results small: Groq's free tier allows ~8K tokens/minute, and every
-// token of search results is re-sent to the model on the next call.
+// Keep results small: Groq's free tier allows ~8K tokens/minute, and every token of
+// search results is re-sent on each later model call. So results share a FIXED budget
+// (~2.5K tokens) however many queries run: 2 queries get rich results, 8 get short ones.
+const RESULTS_CHAR_BUDGET = 10_000;
 const MAX_RESULTS_PER_QUERY = 3;
-const MAX_CHARS_PER_RESULT = 500;
 
 async function tavilySearch(query: string, args: WebSearchArgs): Promise<TavilyResult[]> {
   const res = await fetch("https://api.tavily.com/search", {
@@ -80,6 +81,8 @@ async function tavilySearch(query: string, args: WebSearchArgs): Promise<TavilyR
 // `idOffset` keeps citation numbers unique across multiple search rounds.
 export async function webSearch(args: WebSearchArgs, idOffset = 0): Promise<{ text: string; sources: Source[] }> {
   const settled = await Promise.allSettled(args.queries.map((q) => tavilySearch(q, args)));
+  const perQuery = args.queries.length <= 3 ? MAX_RESULTS_PER_QUERY : 2;
+  const charsPerResult = Math.min(700, Math.floor(RESULTS_CHAR_BUDGET / (args.queries.length * perQuery)));
 
   const sources: Source[] = [];
   const blocks: string[] = [];
@@ -91,13 +94,13 @@ export async function webSearch(args: WebSearchArgs, idOffset = 0): Promise<{ te
       blocks.push(`Query "${query}" failed: ${outcome.reason?.message ?? "unknown error"}`);
       return;
     }
-    for (const r of outcome.value) {
+    for (const r of outcome.value.slice(0, perQuery)) {
       if (seen.has(r.url)) continue;
       seen.add(r.url);
       const source: Source = { id: idOffset + sources.length + 1, title: r.title, url: r.url, published: r.published_date ?? undefined };
       sources.push(source);
       blocks.push(
-        `[${source.id}] ${r.title}\nURL: ${r.url}\nPublished: ${source.published ?? "unknown"}\n${r.content.slice(0, MAX_CHARS_PER_RESULT)}`,
+        `[${source.id}] ${r.title}\nURL: ${r.url}\nPublished: ${source.published ?? "unknown"}\n${r.content.slice(0, charsPerResult)}`,
       );
     }
   });

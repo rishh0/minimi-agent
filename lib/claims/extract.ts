@@ -14,7 +14,9 @@ const ClaimsSchema = z.object({
         entity: z.string(),
         attribute: z.string(),
         value: z.string(),
-        source: z.number().int().nullable(),
+        // A list, because the model naturally cites a fact from several sources
+        // ([20][21]); a single-number schema made Groq reject the whole output.
+        sources: z.array(z.number().int()),
       }),
     )
     .max(20),
@@ -27,7 +29,7 @@ Rules:
 - entity: the product or company the fact is about, by name (e.g. "Neon", "HubSpot"). Never a generic word like "storage" or "plan".
 - attribute: what the fact describes, specific enough to re-check on its own (e.g. "Launch plan compute price", "Free tier storage limit").
 - value: the exact value as stated, with units and conditions.
-- source: the citation number [n] the answer used for this fact, or null if none.
+- sources: the citation numbers [n] the answer used for this fact (empty list if none).
 - Skip opinions, advice, and timeless general knowledge. At most 15 claims. If there are none, return an empty list.`;
 
 export async function extractClaims(answer: string, sources: Source[]): Promise<Omit<Claim, "observedAt">[]> {
@@ -46,7 +48,7 @@ export async function extractClaims(answer: string, sources: Source[]): Promise<
   });
   // Structured output guarantees the shape on Groq's side; we still validate in code.
   const parsed = ClaimsSchema.parse(JSON.parse(res.choices[0].message.content ?? "{}"));
-  const urlFor = (n: number | null) => sources.find((s) => s.id === n)?.url ?? null;
+  const urlFor = (ns: number[]) => sources.find((s) => ns.includes(s.id))?.url ?? null;
   // The same fact is often cited from two sources — keep one row per entity + attribute.
   const seen = new Set<string>();
   return parsed.claims
@@ -54,7 +56,7 @@ export async function extractClaims(answer: string, sources: Source[]): Promise<
       const key = `${c.entity}|${c.attribute}`.toLowerCase();
       return !seen.has(key) && seen.add(key);
     })
-    .map((c) => ({ entity: c.entity, attribute: c.attribute, value: c.value, sourceUrl: urlFor(c.source) }));
+    .map((c) => ({ entity: c.entity, attribute: c.attribute, value: c.value, sourceUrl: urlFor(c.sources) }));
 }
 
 function strictSchema() {

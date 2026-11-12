@@ -28,9 +28,14 @@ export async function* chatTurn(input: {
   yield { type: "conversation", id: conversationId };
 
   addMessage(conversationId, "user", input.message);
-  const history = getMessages(conversationId)
-    .slice(-MAX_HISTORY_MESSAGES)
-    .map(({ role, content }) => ({ role, content }));
+  // Older answers are clipped: they're long (tables, citations) and get re-sent on every
+  // model call. Their facts survive as claims; the latest answer stays whole for follow-ups.
+  const recent = getMessages(conversationId).slice(-MAX_HISTORY_MESSAGES);
+  const lastAnswer = recent.findLastIndex((m) => m.role === "assistant");
+  const history = recent.map(({ role, content }, i) => ({
+    role,
+    content: role === "assistant" && i !== lastAnswer && content.length > 800 ? content.slice(0, 800) + "…" : content,
+  }));
 
   // Step 1 of the pipeline: resolve "last Tuesday" etc. in the user's timezone.
   const at = now();

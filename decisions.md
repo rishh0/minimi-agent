@@ -70,3 +70,18 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 16. tsx for scripts
 - Scripts and evals import `lib/` through the `@/` path alias, which plain Node can't resolve; `tsx` reads tsconfig paths. Its esbuild dependency ships platform binaries, so esbuild's install script is denied too.
+
+## 17. Latency: measure, then fit each turn into the rate limit
+- **Measured** (LOG_TIMINGS + Groq SDK logs): the CRM re-check took 65–73s. Model calls were ~1s and searches ~2.5s; the rest was Groq 429 rate-limit waits — a turn used ~16K tokens against a free-tier limit of 8K/minute.
+- **Fixes, each measured:**
+  - Search budget per turn = 10 queries (one parallel round can use it all) instead of rounds; the last allowed results say "final search, answer now" → no wasted extra model call.
+  - Results share a fixed ~10K-char budget however many queries run.
+  - Reasoning effort per call: `low` for planning searches (−800 tokens), default when judging results — `low` everywhere caused wrong years and old news listed as new.
+  - Older answers clipped in history (facts survive as claims).
+- **Result:** 65s → 7.2s for the full 5-CRM re-verification, no 429s, answer quality kept.
+
+## 18. Lenient schemas for structured output too
+- Claim extraction failed when the model cited a fact twice (`"source": [20, 21]`): Groq validates *after* generation and rejects the whole output. → `sources` is a list. Same principle as decision 13: match the schema to what the model naturally does.
+
+## 19. Markdown rendering with linked citations
+- `react-markdown` + `remark-gfm` (tables). `[n]` citations become links to the source URL; unknown numbers stay plain text.

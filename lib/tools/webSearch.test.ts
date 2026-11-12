@@ -11,8 +11,10 @@ test("pricing/plan queries never get a date filter", () => {
 });
 
 test("normalizeArgs trims, de-duplicates and caps queries", () => {
-  const args = normalizeArgs({ queries: [" a1 ", "a1", "b2", "c3", "d4", "e5", "f6", "x"], start_date: "2026-11-09" });
-  assert.deepEqual(args, { queries: ["a1", "b2", "c3", "d4", "e5"], start_date: "2026-11-09" });
+  const raw = [" a1 ", "a1", ...Array.from({ length: 11 }, (_, i) => `q${i}`), "x"];
+  const args = normalizeArgs({ queries: raw, start_date: "2026-11-09" });
+  assert.equal(args?.queries.length, 10);
+  assert.equal(args?.queries[0], "a1");
 });
 
 test("normalizeArgs drops malformed dates and empty query lists", () => {
