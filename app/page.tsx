@@ -143,7 +143,7 @@ export default function Chat() {
                     : "whitespace-pre-wrap leading-relaxed"
                 }
               >
-                {m.status && <p className="text-sm text-zinc-500">🔎 {m.status}</p>}
+                {m.status && <p className="text-sm text-zinc-500">{m.status}</p>}
                 {normalizeCitations(m.content) || (busy && i === messages.length - 1 && !m.status ? "…" : "")}
                 {m.sources && m.sources.length > 0 && (
                   <ol className="mt-3 space-y-1 border-t border-zinc-200 pt-2 text-sm dark:border-zinc-800">

@@ -1,15 +1,17 @@
 import type Groq from "groq-sdk";
 import { groq, MODEL } from "@/lib/llm/groq";
-import { webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
+import { normalizeArgs, webSearch, webSearchArgs, webSearchTool, type Source, type WebSearchArgs } from "@/lib/tools/webSearch";
 import { SYSTEM_PROMPT } from "./prompt";
 import type { AgentEvent, ChatMessage } from "./events";
 
 type Message = Groq.Chat.ChatCompletionMessageParam;
 type ToolCall = { id: string; name: string; arguments: string };
 
-// Hard cap on model⇄tool round trips. Each search round costs ~1.5-3s,
-// so an agent that keeps searching is slow, not thorough.
+// Each search round costs ~1.5-3s, so an agent that keeps searching is slow, not thorough.
+// After MAX_SEARCH_ROUNDS, further tool calls get "limit reached" as their result
+// (the tool is never removed: gpt-oss calls it anyway and Groq turns that into an error).
 const MAX_SEARCH_ROUNDS = 2;
+const MAX_MODEL_CALLS = 4; // hard stop, so a model that keeps asking can't loop forever
 
 // The agent loop: call the model; if it asks for web_search, run it, feed the
 // results back, and call again. Stops when the model answers in text.
@@ -24,15 +26,14 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
   const allSources: Source[] = [];
 
   try {
-    for (let round = 0; ; round++) {
-      const canSearch = round < MAX_SEARCH_ROUNDS;
+    let searchRounds = 0;
+    for (let modelCall = 0; modelCall < MAX_MODEL_CALLS; modelCall++) {
       const stream = await groq.chat.completions.create({
         model: MODEL,
         stream: true,
         messages,
         tools: [webSearchTool],
-        // After the last allowed round, force a text answer from what we have.
-        tool_choice: canSearch ? "auto" : "none",
+        tool_choice: "auto",
         temperature: 0.3,
       });
 
@@ -54,7 +55,10 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         }
       }
 
-      if (toolCalls.length === 0) break; // the model answered — we're done
+      if (toolCalls.length === 0) {
+        yield { type: "done" }; // the model answered — we're done
+        return;
+      }
 
       messages.push({
         role: "assistant",
@@ -66,25 +70,31 @@ export async function* runAgent(history: ChatMessage[], contextNote: string): As
         })),
       });
 
+      const budgetLeft = searchRounds < MAX_SEARCH_ROUNDS;
       for (const call of toolCalls) {
         const parsed = parseToolCall(call);
-        if (!parsed.ok) {
-          messages.push({ role: "tool", tool_call_id: call.id, content: parsed.error });
+        if (!parsed.ok || !budgetLeft) {
+          const content = parsed.ok
+            ? "Search limit reached. Do not search again: answer now from the results above, and say what you could not verify."
+            : parsed.error;
+          messages.push({ role: "tool", tool_call_id: call.id, content });
           continue;
         }
-        // Tell the user what we're doing *before* the slow part starts.
         const filter = parsed.args.start_date
           ? ` (since ${parsed.args.start_date})`
           : parsed.args.time_range
             ? ` (past ${parsed.args.time_range})`
             : "";
-        yield { type: "status", message: `Searching${filter}: ${parsed.args.queries.join(" · ")}` };
+        // Tell the user what we're doing *before* the slow part starts.
+        yield { type: "status", message: `🔎 Searching${filter}: ${parsed.args.queries.join(" · ")}` };
         const { text: results, sources } = await webSearch(parsed.args, allSources.length);
         allSources.push(...sources);
         if (sources.length) yield { type: "sources", sources };
         messages.push({ role: "tool", tool_call_id: call.id, content: results });
       }
+      if (budgetLeft) searchRounds++;
     }
+    yield { type: "error", message: "I couldn't finish this answer. Please try rephrasing the question." };
     yield { type: "done" };
   } catch (err) {
     yield { type: "error", message: err instanceof Error ? err.message : String(err) };
@@ -103,5 +113,7 @@ function parseToolCall(call: ToolCall): { ok: true; args: WebSearchArgs } | { ok
   }
   const parsed = webSearchArgs.safeParse(json);
   if (!parsed.success) return { ok: false, error: `Error: invalid arguments: ${parsed.error.message}` };
-  return { ok: true, args: parsed.data };
+  const args = normalizeArgs(parsed.data);
+  if (!args) return { ok: false, error: "Error: provide at least one non-empty query." };
+  return { ok: true, args };
 }

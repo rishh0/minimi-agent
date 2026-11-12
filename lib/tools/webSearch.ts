@@ -1,24 +1,34 @@
 import { z } from "zod";
 
-// One Zod schema = the single source of truth for the tool:
-// it generates the JSON Schema the model sees AND validates what the model sends back.
+// The schema the model sees is deliberately LENIENT (no max counts, no regex):
+// Groq validates tool calls server-side and fails the whole request on a mismatch.
+// So we accept what the model sends and normalize it in code instead.
 export const webSearchArgs = z.object({
   queries: z
-    .array(z.string().min(2))
-    .min(1)
-    .max(3)
-    .describe("1-3 distinct search queries. They run in parallel, so split multi-part questions."),
+    .array(z.string())
+    .describe("Up to 3 distinct search queries. They run in parallel, so split multi-part questions."),
   time_range: z
-    .enum(["day", "week", "month", "year"])
+    .string()
     .optional()
-    .describe("Only return results published within this window. Use for recent news or changes."),
+    .describe('"day", "week", "month" or "year". Only results published within this window. For news only — not for pricing or docs pages.'),
   start_date: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
-    .describe("YYYY-MM-DD. Only results published after this date, e.g. 'what changed since Monday'."),
+    .describe("YYYY-MM-DD. Only results published after this date. For news/announcements only — not for pricing or docs pages."),
 });
-export type WebSearchArgs = z.infer<typeof webSearchArgs>;
+
+export type WebSearchArgs = { queries: string[]; time_range?: "day" | "week" | "month" | "year"; start_date?: string };
+
+const MAX_QUERIES = 3;
+
+// Model output → safe arguments: trim/dedupe queries, keep the first 3, drop invalid filters.
+export function normalizeArgs(raw: z.infer<typeof webSearchArgs>): WebSearchArgs | null {
+  const queries = [...new Set(raw.queries.map((q) => q.trim()).filter((q) => q.length >= 2))].slice(0, MAX_QUERIES);
+  if (!queries.length) return null;
+  const time_range = (["day", "week", "month", "year"] as const).find((r) => r === raw.time_range);
+  const start_date = raw.start_date && /^\d{4}-\d{2}-\d{2}$/.test(raw.start_date) ? raw.start_date : undefined;
+  return { queries, time_range, start_date };
+}
 
 export const webSearchTool = {
   type: "function" as const,

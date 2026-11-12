@@ -44,3 +44,10 @@ test("'yesterday' depends on the timezone", () => {
   assert.equal(resolveDates("yesterday", at, IST)[0].startDate, "2026-11-11");
   assert.equal(resolveDates("yesterday", at, "America/Los_Angeles")[0].startDate, "2026-11-10");
 });
+
+test("'today' next to a past date is dropped (it means 'now', not a range)", () => {
+  assert.deepEqual(range("What did I ask you on 3 November? Is your answer still correct today?"), [
+    ["2026-11-03", "2026-11-03"],
+  ]);
+  assert.deepEqual(range("what did I ask you today?"), [["2026-11-12", "2026-11-12"]]);
+});

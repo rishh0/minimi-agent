@@ -49,3 +49,12 @@ One entry per decision: what we chose, what we rejected, why. This becomes DESIG
 
 ## 11. Stable system prompt, volatile context last
 - The system prompt contains nothing that changes per request. Time context (now + resolved dates) is a separate system message after the history, so the prefix stays identical and cacheable (Groq: cached tokens don't count toward rate limits).
+
+## 12. Memory retrieval runs in code before the model (not a second tool)
+- **Chose:** `lib/memory/retrieve.ts` — if the message has a memory cue ("I asked", "we shortlisted", "still correct"…), query SQLite: FTS keyword matches inside the resolved date range → else all questions in the range → else keyword matches across all history. Results go to the model as a "Memory" note; an empty result is stated explicitly ("NOTHING FOUND — say you have no record").
+- **Rejected:** memory as a tool (brief allows one tool; costs a model round-trip; a date lookup is deterministic), always injecting memory (a date like "since Monday" in a world question would pull in irrelevant chats), embeddings/vector search (queries are dates + keywords).
+- Current conversation is excluded (it's already in the history).
+
+## 13. Never let a model mistake become a crash
+- Groq validates tool calls server-side and fails the whole request on a schema mismatch (e.g. 5 queries when max is 3). → The schema the model sees is lenient; `normalizeArgs` clamps to 3 queries and drops malformed filters in code.
+- `tool_choice: "none"` (and even removing tools) still made gpt-oss try to search → Groq error. → The tool always stays available; after 2 search rounds, extra calls get "limit reached, answer now" as their result. Hard stop at 4 model calls.

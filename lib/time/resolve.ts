@@ -71,7 +71,10 @@ export function resolveDates(message: string, at: Date, timeZone: string): DateR
       endUtc: zonedMidnightUtc(addDays(end, 1), timeZone).toISOString(),
     });
   }
-  return refs;
+  // "What did I ask on 3 Nov — is it still correct today?": "today" refers to the present,
+  // not a period to look up. Drop today-only refs when the message also names another date.
+  const isTodayOnly = (r: DateRef) => r.startDate === iso(today) && r.endDate === iso(today);
+  return refs.some((r) => !isTodayOnly(r)) ? refs.filter((r) => !isTodayOnly(r)) : refs;
 }
 
 // "Thursday, 12 November 2026, 15:30" in the user's timezone.

@@ -1,4 +1,5 @@
 import type { DateRef } from "@/lib/time/resolve";
+import type { MemoryResult } from "@/lib/memory/retrieve";
 
 // Kept free of anything that changes per request (like the date), so every request
 // starts with the exact same prefix — that's what lets the provider cache it.
@@ -8,7 +9,7 @@ When to search:
 - Search for anything time-sensitive (pricing, releases, news, "latest", "still true?") or anything you are not sure about.
 - Don't search for greetings, small talk, or general knowledge that doesn't change.
 - Put all the queries you need into ONE web_search call (up to 3); they run in parallel. Only search again if the results were insufficient.
-- For "what changed since <date>" questions, set start_date.
+- Use start_date/time_range ONLY for news and announcements ("what did X announce since Monday"). Never for pricing, plans, or docs: those pages are old but kept current, and a date filter hides them.
 
 How to answer:
 - Lead with the answer. Be concise; use short bullets or a small table when comparing.
@@ -16,14 +17,36 @@ How to answer:
 - If sources conflict or are outdated, say so. If you couldn't verify something, say that plainly instead of guessing.
 
 Dates:
-- A "Time context" note gives the current date and resolves the user's date phrases. Trust it over your own date arithmetic.`;
+- A "Time context" note gives the current date and resolves the user's date phrases. Trust it over your own date arithmetic.
+
+Memory of past conversations:
+- When the user refers to earlier conversations, a "Memory" note lists what was retrieved from the database. It is the ONLY source of truth about the past.
+- If the Memory note says nothing was found, say plainly that you have no record of it. Never invent past questions or answers.
+- When asked whether a past answer is "still correct" or what "changed since", search for the current facts, then compare claim by claim: what is unchanged, what changed (old → new, with citation), and what you could not verify.`;
 
 // Per-request facts, sent as a separate system message AFTER the history.
 export function timeContext(nowLabel: string, timeZone: string, refs: DateRef[]): string {
   const lines = [`Time context — now: ${nowLabel} (${timeZone}).`];
   if (refs.length) {
     lines.push("Date phrases in the user's latest message, resolved by code:");
-    for (const r of refs) lines.push(`- "${r.text}" = ${r.label} (start_date for search: ${r.startDate})`);
+    for (const r of refs) lines.push(`- "${r.text}" = ${r.label} (${r.startDate} to ${r.endDate})`);
+  }
+  return lines.join("\n");
+}
+
+// What memory retrieval found (or explicitly didn't find) — so "no record" is a fact, not a guess.
+export function memoryNote(memory: MemoryResult, timeZone: string): string {
+  if (!memory.turns.length) {
+    return `Memory — searched past conversations (${memory.searchedFor}): NOTHING FOUND. Tell the user you have no record of it.`;
+  }
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const clip = (t: string, n: number) => (t.length > n ? t.slice(0, n) + "…" : t);
+  const lines = [`Memory — past conversations retrieved for (${memory.searchedFor}):`];
+  for (const t of memory.turns) {
+    lines.push(`\n[${when(t.askedAt)} — chat "${t.conversationTitle}"]`);
+    lines.push(`User asked: ${clip(t.question, 300)}`);
+    lines.push(`You answered: ${t.answer ? clip(t.answer, 700) : "(no answer saved)"}`);
   }
   return lines.join("\n");
 }

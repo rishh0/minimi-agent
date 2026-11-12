@@ -5,7 +5,8 @@ import { addMessage, conversationExists, createConversation, getMessages } from 
 import type { Source } from "@/lib/tools/webSearch";
 import { now } from "@/lib/time/clock";
 import { formatNow, resolveDates } from "@/lib/time/resolve";
-import { timeContext } from "./prompt";
+import { memoryNote, timeContext } from "./prompt";
+import { retrieveMemory } from "@/lib/memory/retrieve";
 
 // Only the most recent turns go to the model: long chats would blow through
 // Groq's ~8K tokens/minute free tier and slow every request down.
@@ -33,7 +34,15 @@ export async function* chatTurn(input: {
   // Step 1 of the pipeline: resolve "last Tuesday" etc. in the user's timezone.
   const at = now();
   const dateRefs = resolveDates(input.message, at, input.timeZone);
-  const contextNote = timeContext(formatNow(at, input.timeZone), input.timeZone, dateRefs);
+  const notes = [timeContext(formatNow(at, input.timeZone), input.timeZone, dateRefs)];
+
+  // Step 2: if the user is asking about past conversations, look them up (SQL, ~1ms).
+  const memory = retrieveMemory({ message: input.message, dateRefs, excludeConversationId: conversationId });
+  if (memory) {
+    yield { type: "status", message: `📚 Checked memory: ${memory.turns.length} past question(s) found` };
+    notes.push(memoryNote(memory, input.timeZone));
+  }
+  const contextNote = notes.join("\n\n");
 
   let answer = "";
   const sources: Source[] = [];
